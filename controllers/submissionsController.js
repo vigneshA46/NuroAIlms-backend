@@ -57,6 +57,8 @@ exports.getSubmissionDetails = (req, res) => {
   });
 };
 
+
+
 // Submit coding challenge
 exports.submitCodingChallenge = (req, res) => {
   const { student_id, challenge_id, code } = req.body;
@@ -126,4 +128,26 @@ exports.getStudentResult = (req, res) => {
       ...row // include any other info
     });
   });
+};
+
+
+exports.getAllCodingSubmissions = (req, res) => {
+  const { challengeid } = req.params;
+
+  if (!challengeid) {
+    return res.status(400).json({ error: "Challenge ID is required" });
+  }
+
+  db.all(
+    "SELECT * FROM coding_submissions WHERE challenge_id = ?",
+    [challengeid],
+    (err, rows) => {
+      if (err) {
+        console.error("Error fetching submissions:", err.message);
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      res.status(200).json(rows);
+    }
+  );
 };

@@ -7,7 +7,8 @@ const {
   submitCodingChallenge,
   getCodingSubmissions,
   checkTestAttempt,
-  getStudentResult
+  getStudentResult,
+  getAllCodingSubmissions
 } = require("../controllers/submissionsController");
 
 // MCQ Test Submissions
@@ -20,5 +21,6 @@ router.post("/coding", submitCodingChallenge);       // submit code
 router.get("/coding/student/:id", getCodingSubmissions); // get coding submissions of student
 router.get("/:testId/student/:studentId/attempted",checkTestAttempt);
 router.get("/:testId/student/:studentId/result",getStudentResult)
+router.get("/submission/:challengeid",getAllCodingSubmissions)
 
 module.exports = router;

@@ -24,6 +24,7 @@ app.use("/test",require("./routes/tests"))
 app.use("/question",require("./routes/question"))
 app.use("/submission",require("./routes/submissions"))
 app.use("/studentdata",require("./routes/studentData"))
+app.use("/admin",require("./routes/admin"))
 
 
 const PORT = 3000;

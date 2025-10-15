@@ -10,7 +10,9 @@ const {
 
 // Create Department
 
+
 router.post("/", createDepartment);
+
 
 // Get All Departments
 router.get("/:id", getDepartments);
