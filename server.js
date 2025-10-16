@@ -8,9 +8,10 @@ app.use(express.urlencoded({ extended: true }));
 
 
 app.use(cors({
-  origin: "http://localhost:5173", // frontend origin (React dev server)
+  origin: "*", // frontend origin (React dev server)
   methods: ["GET", "POST", "PUT", "DELETE","PATCH"], // allowed methods
-  allowedHeaders: ["Content-Type", "Authorization"] // allowed headers
+  allowedHeaders: ["Content-Type", "Authorization"], // allowed headers
+  credentials: true
 }));
 
 

@@ -84,3 +84,35 @@ exports.createStudentDataForStudent = (req, res) => {
     });
   });
 };
+
+exports.getStudentDashboard = (req, res) => {
+  const studentId = req.params.studentId;
+
+  const query = `
+    SELECT 
+        sd.full_name AS student_name,
+        COUNT(DISTINCT st.test_id) AS tests_assigned,
+        SUM(CASE WHEN st.status = 'completed' THEN 1 ELSE 0 END) AS tests_completed,
+        COUNT(qr.id) AS questions_attempted,
+        COALESCE(SUM(t.total_time), 0) AS total_time_spent
+    FROM students s
+    JOIN studentdata sd ON sd.student_id = s.id
+    LEFT JOIN student_tests st ON st.student_id = s.id
+    LEFT JOIN tests t ON t.id = st.test_id AND st.status='completed'
+    LEFT JOIN test_submissions ts ON ts.student_id = s.id
+    LEFT JOIN question_responses qr ON qr.submission_id = ts.id
+    WHERE s.id = ?
+    GROUP BY sd.full_name
+  `;
+
+  db.get(query, [studentId], (err, row) => {
+    if (err) {
+      console.error("Error fetching dashboard:", err.message);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+    if (!row) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+    res.json(row);
+  });
+};
