@@ -149,6 +149,7 @@ db.run(`
     student_id INTEGER NOT NULL,
     language TEXT NOT NULL,                  
     code TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',  -- pending, passed, failed,
     ai_score REAL,                           
     feedback TEXT,                           
     submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -182,7 +183,7 @@ db.run(
   FOREIGN KEY (question_id) REFERENCES questions(id)
 );`
 )
-
+/* 
 db.run(
   `CREATE TABLE IF NOT EXISTS coding_submissions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -190,11 +191,11 @@ db.run(
   challenge_id INTEGER NOT NULL,
   code TEXT NOT NULL,
   status TEXT DEFAULT 'pending',  -- pending, passed, failed
-  score INTEGER DEFAULT 0,
+  ai_score INTEGER DEFAULT 0,
   submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (student_id) REFERENCES students(id),
   FOREIGN KEY (challenge_id) REFERENCES coding_challenges(id)
 );`
 )
-
+ */
 module.exports = db;

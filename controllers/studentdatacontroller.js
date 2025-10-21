@@ -85,34 +85,108 @@ exports.createStudentDataForStudent = (req, res) => {
   });
 };
 
-exports.getStudentDashboard = (req, res) => {
-  const studentId = req.params.studentId;
+exports.StudentDashboard = (req, res) => {
+  const { studentId } = req.params;
 
-  const query = `
-    SELECT 
-        sd.full_name AS student_name,
-        COUNT(DISTINCT st.test_id) AS tests_assigned,
-        SUM(CASE WHEN st.status = 'completed' THEN 1 ELSE 0 END) AS tests_completed,
-        COUNT(qr.id) AS questions_attempted,
-        COALESCE(SUM(t.total_time), 0) AS total_time_spent
+  // Step 1: Fetch student's name, college_id, and department_id
+  const studentInfoQuery = `
+    SELECT s.id, s.college_id, s.department_id, sd.full_name
     FROM students s
     JOIN studentdata sd ON sd.student_id = s.id
-    LEFT JOIN student_tests st ON st.student_id = s.id
-    LEFT JOIN tests t ON t.id = st.test_id AND st.status='completed'
-    LEFT JOIN test_submissions ts ON ts.student_id = s.id
-    LEFT JOIN question_responses qr ON qr.submission_id = ts.id
     WHERE s.id = ?
-    GROUP BY sd.full_name
   `;
 
-  db.get(query, [studentId], (err, row) => {
+  db.get(studentInfoQuery, [studentId], (err, student) => {
     if (err) {
-      console.error("Error fetching dashboard:", err.message);
+      console.error(" Error fetching student info:", err.message);
       return res.status(500).json({ error: "Internal Server Error" });
     }
-    if (!row) {
+    if (!student) {
       return res.status(404).json({ error: "Student not found" });
     }
-    res.json(row);
+
+    const { college_id, department_id, full_name } = student;
+
+    // Step 2: Aggregate all dashboard metrics
+    const dashboardQuery = `
+      WITH 
+      -- Tests stats
+      test_stats AS (
+        SELECT 
+          COUNT(*) AS tests_assigned,
+          SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS tests_completed,
+          COALESCE(SUM(t.total_time), 0) AS total_time_spent
+        FROM student_tests st
+        JOIN tests t ON t.id = st.test_id
+        WHERE st.student_id = ?
+      ),
+      -- Questions attempted
+      question_stats AS (
+        SELECT COUNT(qr.id) AS questions_attempted
+        FROM test_submissions ts
+        JOIN question_responses qr ON qr.submission_id = ts.id
+        WHERE ts.student_id = ?
+      ),
+      -- Coding stats
+      coding_stats AS (
+        SELECT
+          (SELECT COUNT(*) 
+           FROM coding_challenges cc
+           WHERE cc.college_id = ? 
+             AND (cc.department_ids LIKE '%' || ? || '%')
+          ) AS coding_assigned,
+          (SELECT COUNT(*) 
+           FROM coding_submissions cs
+           WHERE cs.student_id = ?
+          ) AS coding_attempted,
+          (SELECT COUNT(*) 
+           FROM coding_submissions cs
+           WHERE cs.student_id = ? AND cs.status = 'passed'
+          ) AS coding_completed
+      )
+      SELECT
+        ? AS student_name,
+        ts.tests_assigned,
+        ts.tests_completed,
+        qs.questions_attempted,
+        ts.total_time_spent,
+        cs.coding_assigned,
+        cs.coding_attempted,
+        cs.coding_completed
+      FROM test_stats ts
+      CROSS JOIN question_stats qs
+      CROSS JOIN coding_stats cs
+    `;
+
+    const params = [
+      studentId,         // For test_stats
+      studentId,         // For question_stats
+      college_id,        // For coding_assigned
+      department_id,     // For coding_assigned (LIKE match)
+      studentId,         // For coding_attempted
+      studentId,         // For coding_completed
+      full_name          // For final SELECT
+    ];
+
+    db.get(dashboardQuery, params, (err, result) => {
+      if (err) {
+        console.error("❌ Error fetching dashboard data:", err.message);
+        return res.status(500).json({ error: "Internal Server Error" });
+      }
+
+      // Handle null-safe defaults
+      const response = {
+        student_name: result?.student_name || full_name,
+        tests_assigned: result?.tests_assigned || 0,
+        tests_completed: result?.tests_completed || 0,
+        questions_attempted: result?.questions_attempted || 0,
+        total_time_spent: result?.total_time_spent || 0,
+        coding_assigned: result?.coding_assigned || 0,
+        coding_attempted: result?.coding_attempted || 0,
+        coding_completed: result?.coding_completed || 0,
+      };
+
+      res.json(response);
+    });
   });
 };

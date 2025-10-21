@@ -1,4 +1,6 @@
 const db = require("../db");
+const axios = require("axios");
+
 
 // --------------------
 // Create Coding Challenge
@@ -281,4 +283,104 @@ exports.getDepartmentCodingChallenges = (req, res) => {
 
     res.json(rows);
   });
+};
+
+
+exports.codeReviewController = async (req, res) => {
+  const { title, description, studentCode, student_id, challenge_id } = req.body;
+
+  if (!title || !description || !studentCode || !student_id || !challenge_id) {
+    return res
+      .status(400)
+      .json({ error: "title, description, studentCode, student_id, and challenge_id are required." });
+  }
+
+  try {
+    const prompt = `
+You are an expert coding instructor reviewing a student's submission.
+
+Question Title: ${title}
+Description: ${description}
+
+Here is the student's submitted code:
+\`\`\`
+${studentCode}
+\`\`\`
+
+Please do the following:
+1. Evaluate the code on correctness, efficiency, edge cases, readability, and coding standards.
+2. Return **only JSON** — no extra text, explanation, or commentary.
+3. The JSON must have **two keys**: "score" (integer 1-10) and "feedback" (string).
+
+Example of correct output:
+
+{
+  "score": 8,
+  "feedback": "The code works correctly but misses handling empty strings and could be optimized for readability."
+}
+`;
+
+    // Call Groq API
+    const response = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: "You are a professional code reviewer." },
+          { role: "user", content: prompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 300,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    const content = response.data.choices[0].message.content;
+
+    // Clean and parse JSON
+    let parsed;
+    try {
+      let cleanContent = content
+        .trim()
+        .replace(/^```json/, "")
+        .replace(/^```/, "")
+        .replace(/```$/, "")
+        .trim();
+      parsed = JSON.parse(cleanContent);
+    } catch (err) {
+      console.warn("⚠️ Model returned non-JSON output:", content);
+      parsed = {
+        score: 0,
+        feedback: "The model returned an unparsable response. Try rephrasing or retrying.",
+      };
+    }
+
+    // Ensure score is between 1-10
+    if (typeof parsed.score !== "number" || parsed.score < 1 || parsed.score > 10) {
+      parsed.score = Math.min(Math.max(Number(parsed.score) || 0, 1), 10);
+    }
+
+    // ----------- INSERT/UPDATE DB -----------
+    const status = parsed.score >= 5 ? "passed" : "failed";
+    const sql = `
+      UPDATE coding_submissions
+      SET ai_score = ?, status = ?, feedback = ?
+      WHERE student_id = ? AND challenge_id = ?
+    `;
+    db.run(sql, [parsed.score, status, parsed.feedback, student_id, challenge_id], function (err) {
+      if (err) console.error("❌ DB update error:", err.message);
+      else console.log(`✅ Updated submission: student ${student_id}, challenge ${challenge_id}`);
+    });
+
+    // Return the score and feedback to client
+    return res.json(parsed);
+  } catch (error) {
+    console.error("❌ Error calling Groq API:", error.message);
+    return res.status(500).json({ error: "Failed to review code." });
+  }
 };

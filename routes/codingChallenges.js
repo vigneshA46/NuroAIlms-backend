@@ -1,7 +1,7 @@
 // codingChallenges.js (CommonJS)
 const express = require("express");
 const axios = require("axios");
-const { createCodingChallenge, updateCodingChallenge, deleteCodingChallenge, getAllCodingChallenges, getCodingChallenge, getStudentCodingChallenges, isCodingChallengeAttempted, submitCodingChallengeCode, evaluateCodingChallengeSubmission, getStudentCodingSubmissionResult, getCollegeCodingChallenges, getDepartmentCodingChallenges } = require("../controllers/codingChallengesController");
+const { createCodingChallenge, updateCodingChallenge, deleteCodingChallenge, getAllCodingChallenges, getCodingChallenge, getStudentCodingChallenges, isCodingChallengeAttempted, submitCodingChallengeCode, evaluateCodingChallengeSubmission, getStudentCodingSubmissionResult, getCollegeCodingChallenges, getDepartmentCodingChallenges, codeReviewController } = require("../controllers/codingChallengesController");
 
 const router = express.Router();
 
@@ -49,6 +49,8 @@ router.put("/student/evaluate/:submission_id", evaluateCodingChallengeSubmission
 router.get("/student/:challenge_id/:student_id/result", getStudentCodingSubmissionResult);
 
 router.get("/student/department/:department_id",getDepartmentCodingChallenges);
+
+router.post("/admin/review",codeReviewController)
 
 
 
