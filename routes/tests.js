@@ -19,7 +19,7 @@ router.get("/", getAllTests);
 
 // Get tests by college
 router.get("/college/:collegeId", getTestsByCollege);
-
+ 
 // Assign test to multiple departments
 router.post("/:testId/departments", assignDepartmentsToTest);
 

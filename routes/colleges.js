@@ -14,3 +14,4 @@ router.get('/:id',getCollegeById)
 router.delete("/:id", deleteCollege);
 
 module.exports = router;
+ 

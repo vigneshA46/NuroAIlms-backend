@@ -1,17 +1,22 @@
 const express = require("express");
 const router = express.Router();
-const db = require("../db");
+const pool = require("../db"); // Use PostgreSQL pool
 
-const { createStudent, getStudents, updateStudent, deleteStudent } = require("../controllers/studentsController");
+const {
+  createStudent,
+  getStudents,
+  updateStudent,
+  deleteStudent,
+} = require("../controllers/studentsController");
 
-router.post("/", createStudent);        // Create student
-router.get("/", getStudents);           // Get all students
-router.put("/:id", updateStudent);      // Update student (partial update supported)
-router.delete("/:id", deleteStudent);   // Delete student
-
+// CRUD routes
+router.post("/", createStudent); // Create student
+router.get("/", getStudents); // Get all students
+router.put("/:id", updateStudent); // Update student
+router.delete("/:id", deleteStudent); // Delete student
 
 // GET /api/get-students/:collegeId/:departmentId
-router.get("/get-students/:collegeId/:departmentId", (req, res) => {
+router.get("/get-students/:collegeId/:departmentId", async (req, res) => {
   const { collegeId, departmentId } = req.params;
 
   const sql = `
@@ -21,13 +26,16 @@ router.get("/get-students/:collegeId/:departmentId", (req, res) => {
     FROM students s
     LEFT JOIN colleges c ON s.college_id = c.id
     LEFT JOIN departments d ON s.department_id = d.id
-    WHERE s.college_id = ? AND s.department_id = ?
+    WHERE s.college_id = $1 AND s.department_id = $2
   `;
 
-  db.all(sql, [collegeId, departmentId], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
+  try {
+    const result = await pool.query(sql, [collegeId, departmentId]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching students:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 module.exports = router;

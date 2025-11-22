@@ -1,116 +1,118 @@
-const db = require("../db");
+const pool = require("../db");
 
 // ✅ Get student data by student_id
-exports.getStudentData = (req, res) => {
+exports.getStudentData = async (req, res) => {
   const { student_id } = req.params;
 
-  const sql = `SELECT * FROM studentdata WHERE student_id = ?`;
-  db.get(sql, [student_id], (err, row) => {
-    if (err) {
-      console.error("Error fetching student data:", err);
-      return res.status(500).json({ error: "Database error" });
-    }
-    if (!row) {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM studentdata WHERE student_id = $1`,
+      [student_id]
+    );
+
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: "Student data not found" });
     }
-    res.json(row);
-  });
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error fetching student data:", err.message);
+    res.status(500).json({ error: "Database error" });
+  }
 };
 
-// ✅ Update student data (partial update allowed)
-exports.updateStudentData = (req, res) => {
+// ✅ Update student data (partial update)
+exports.updateStudentData = async (req, res) => {
   const { student_id } = req.params;
-  const updates = req.body; // { full_name, gender, location, dob, about_you }
+  const updates = req.body;
 
-  // dynamically build query
   const fields = Object.keys(updates);
   if (fields.length === 0) {
     return res.status(400).json({ error: "No fields to update" });
   }
 
-  const setClause = fields.map((f) => `${f} = ?`).join(", ");
+  const setClause = fields.map((f, i) => `${f} = $${i + 1}`).join(", ");
   const values = [...fields.map((f) => updates[f]), student_id];
 
-  const sql = `UPDATE studentdata SET ${setClause} WHERE student_id = ?`;
+  try {
+    const result = await pool.query(
+      `UPDATE studentdata SET ${setClause} WHERE student_id = $${fields.length + 1}`,
+      values
+    );
 
-  db.run(sql, values, function (err) {
-    if (err) {
-      console.error("Error updating student data:", err);
-      return res.status(500).json({ error: "Database error" });
-    }
-    if (this.changes === 0) {
+    if (result.rowCount === 0) {
       return res.status(404).json({ message: "Student data not found" });
     }
+
     res.json({ message: "Student data updated successfully" });
-  });
+  } catch (err) {
+    console.error("Error updating student data:", err.message);
+    res.status(500).json({ error: "Database error" });
+  }
 };
 
+// ✅ Create student data for a student
+exports.createStudentDataForStudent = async (req, res) => {
+  const { studentId } = req.params;
 
-// Create student data for a student
-exports.createStudentDataForStudent = (req, res) => {
-  const { studentId } = req.params; // get from route params (or req.body if you prefer)
+  try {
+    // Check if already exists
+    const check = await pool.query(
+      `SELECT id FROM studentdata WHERE student_id = $1`,
+      [studentId]
+    );
 
-  const checkSql = `SELECT id FROM studentdata WHERE student_id = ?`;
-  db.get(checkSql, [studentId], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
-    }
-
-    if (row) {
-      // Already exists
+    if (check.rows.length > 0) {
       return res.json({
-        id: row.id,
+        id: check.rows[0].id,
         student_id: studentId,
         message: "Row already exists",
       });
     }
 
-    // Insert new row
-    const insertSql = `
-      INSERT INTO studentdata (student_id, full_name, gender, location, dob, about_you)
-      VALUES (?, '', '', '', '', '')
-    `;
+    // Insert new
+    const insert = await pool.query(
+      `INSERT INTO studentdata (student_id, full_name, gender, location, dob, about_you)
+       VALUES ($1, '', '', '', '', '') RETURNING id`,
+      [studentId]
+    );
 
-    db.run(insertSql, [studentId], function (err2) {
-      if (err2) {
-        return res.status(500).json({ error: err2.message });
-      }
-
-      return res.json({
-        id: this.lastID,
-        student_id: studentId,
-        message: "Row created",
-      });
+    res.json({
+      id: insert.rows[0].id,
+      student_id: studentId,
+      message: "Row created",
     });
-  });
+  } catch (err) {
+    console.error("Error creating student data:", err.message);
+    res.status(500).json({ error: "Database error" });
+  }
 };
 
-exports.StudentDashboard = (req, res) => {
+// ✅ Student Dashboard
+exports.StudentDashboard = async (req, res) => {
   const { studentId } = req.params;
 
-  // Step 1: Fetch student's name, college_id, and department_id
-  const studentInfoQuery = `
-    SELECT s.id, s.college_id, s.department_id, sd.full_name
-    FROM students s
-    JOIN studentdata sd ON sd.student_id = s.id
-    WHERE s.id = ?
-  `;
+  try {
+    // Step 1: Fetch student's info
+    const studentRes = await pool.query(
+      `
+      SELECT s.id, s.college_id, s.department_id, sd.full_name
+      FROM students s
+      JOIN studentdata sd ON sd.student_id = s.id
+      WHERE s.id = $1
+      `,
+      [studentId]
+    );
 
-  db.get(studentInfoQuery, [studentId], (err, student) => {
-    if (err) {
-      console.error(" Error fetching student info:", err.message);
-      return res.status(500).json({ error: "Internal Server Error" });
-    }
-    if (!student) {
+    if (studentRes.rows.length === 0) {
       return res.status(404).json({ error: "Student not found" });
     }
 
-    const { college_id, department_id, full_name } = student;
+    const { college_id, department_id, full_name } = studentRes.rows[0];
 
-    // Step 2: Aggregate all dashboard metrics
+    // Step 2: Dashboard query
     const dashboardQuery = `
       WITH 
-      -- Tests stats
       test_stats AS (
         SELECT 
           COUNT(*) AS tests_assigned,
@@ -118,34 +120,32 @@ exports.StudentDashboard = (req, res) => {
           COALESCE(SUM(t.total_time), 0) AS total_time_spent
         FROM student_tests st
         JOIN tests t ON t.id = st.test_id
-        WHERE st.student_id = ?
+        WHERE st.student_id = $1
       ),
-      -- Questions attempted
       question_stats AS (
         SELECT COUNT(qr.id) AS questions_attempted
         FROM test_submissions ts
         JOIN question_responses qr ON qr.submission_id = ts.id
-        WHERE ts.student_id = ?
+        WHERE ts.student_id = $2
       ),
-      -- Coding stats
       coding_stats AS (
         SELECT
           (SELECT COUNT(*) 
            FROM coding_challenges cc
-           WHERE cc.college_id = ? 
-             AND (cc.department_ids LIKE '%' || ? || '%')
+           WHERE cc.college_id = $3 
+             AND cc.department_ids LIKE '%' || $4 || '%'
           ) AS coding_assigned,
           (SELECT COUNT(*) 
            FROM coding_submissions cs
-           WHERE cs.student_id = ?
+           WHERE cs.student_id = $5
           ) AS coding_attempted,
           (SELECT COUNT(*) 
            FROM coding_submissions cs
-           WHERE cs.student_id = ? AND cs.status = 'passed'
+           WHERE cs.student_id = $6 AND cs.status = 'passed'
           ) AS coding_completed
       )
       SELECT
-        ? AS student_name,
+        $7 AS student_name,
         ts.tests_assigned,
         ts.tests_completed,
         qs.questions_attempted,
@@ -158,35 +158,30 @@ exports.StudentDashboard = (req, res) => {
       CROSS JOIN coding_stats cs
     `;
 
-    const params = [
-      studentId,         // For test_stats
-      studentId,         // For question_stats
-      college_id,        // For coding_assigned
-      department_id,     // For coding_assigned (LIKE match)
-      studentId,         // For coding_attempted
-      studentId,         // For coding_completed
-      full_name          // For final SELECT
-    ];
+    const result = await pool.query(dashboardQuery, [
+      studentId, // test_stats
+      studentId, // question_stats
+      college_id, // coding_assigned
+      department_id, // LIKE match
+      studentId, // coding_attempted
+      studentId, // coding_completed
+      full_name, // student_name
+    ]);
 
-    db.get(dashboardQuery, params, (err, result) => {
-      if (err) {
-        console.error("❌ Error fetching dashboard data:", err.message);
-        return res.status(500).json({ error: "Internal Server Error" });
-      }
+    const row = result.rows[0] || {};
 
-      // Handle null-safe defaults
-      const response = {
-        student_name: result?.student_name || full_name,
-        tests_assigned: result?.tests_assigned || 0,
-        tests_completed: result?.tests_completed || 0,
-        questions_attempted: result?.questions_attempted || 0,
-        total_time_spent: result?.total_time_spent || 0,
-        coding_assigned: result?.coding_assigned || 0,
-        coding_attempted: result?.coding_attempted || 0,
-        coding_completed: result?.coding_completed || 0,
-      };
-
-      res.json(response);
+    res.json({
+      student_name: row.student_name || full_name,
+      tests_assigned: parseInt(row.tests_assigned) || 0,
+      tests_completed: parseInt(row.tests_completed) || 0,
+      questions_attempted: parseInt(row.questions_attempted) || 0,
+      total_time_spent: parseFloat(row.total_time_spent) || 0,
+      coding_assigned: parseInt(row.coding_assigned) || 0,
+      coding_attempted: parseInt(row.coding_attempted) || 0,
+      coding_completed: parseInt(row.coding_completed) || 0,
     });
-  });
+  } catch (err) {
+    console.error("Error fetching student dashboard:", err.message);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 };

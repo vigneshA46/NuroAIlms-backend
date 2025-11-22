@@ -1,201 +1,212 @@
-const sqlite3 = require("sqlite3").verbose();
+// db.js — PostgreSQL version
+const dotenv = require("dotenv");
 
-const db = new sqlite3.Database("nuroai-lms.db", (err) => {
-  if (err) {
-    console.error("❌ Error opening database:", err.message);
-  } else {
-    console.log("✅ Connected to SQLite database.");
+const { Pool } = require("pg")
+
+dotenv.config();
+
+// ----------------------
+// PostgreSQL Connection
+// ----------------------
+
+
+
+// local connecion
+
+/* const pool = new Pool({
+  user: process.env.DB_USER || "postgres",
+  host: process.env.DB_HOST || "localhost",
+  database: process.env.DB_NAME || "nuroailms",
+  password: process.env.DB_PASSWORD || "123456",
+  port: process.env.DB_PORT || 5432,
+});
+
+pool
+  .connect()
+  .then(() => console.log("✅ Connected to PostgreSQL database"))
+  .catch((err) => console.error("❌ Database connection error:", err.message));
+ */
+
+
+
+
+  const pool = new Pool({
+  connectionString: process.env.DATABASE_URL || 
+    "postgresql://nuroailms_user:jWSVttb05dxQwBzpntADLmxjnGGjtdMa@dpg-d460u3buibrs73ffoscg-a.singapore-postgres.render.com/nuroailms",
+  ssl: {
+    rejectUnauthorized: false, // REQUIRED for Render free-tier PostgreSQL
   }
 });
 
-// ----------------------
-// Core Tables
-// ----------------------
+pool.connect()
+  .then(() => console.log("✅ Connected to Render PostgreSQL"))
+  .catch((err) => console.error("❌ Database connection error:", err.message));
 
-// Colleges
-db.run(`
-  CREATE TABLE IF NOT EXISTS colleges (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-  )
-`);
 
-// Departments
-db.run(`
-  CREATE TABLE IF NOT EXISTS departments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    college_id INTEGER,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (college_id) REFERENCES colleges(id)
-  )
-`);
 
-// Students (Auth data only)
-db.run(`
-  CREATE TABLE IF NOT EXISTS students (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    college_id INTEGER,
-    department_id INTEGER,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (college_id) REFERENCES colleges(id),
-    FOREIGN KEY (department_id) REFERENCES departments(id)
-  )
-`);
+
 
 // ----------------------
-// Extended Student Data
+// Table Initialization
 // ----------------------
-db.run(`
-  CREATE TABLE IF NOT EXISTS studentdata (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id INTEGER UNIQUE,
-    full_name TEXT NOT NULL,
-    gender TEXT,
-    location TEXT,
-    dob TEXT,
-    about_you TEXT,
-    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE
-  )
-`);
+async function initializeDatabase() {
+  try {
+    // Colleges
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS colleges (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
-// ----------------------
-// Tests & MCQs
-// ----------------------
-  // Tests table
-  // Tests table
-db.run(`
-  CREATE TABLE IF NOT EXISTS tests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    description TEXT,
-    college_id INTEGER NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    start_date DATETIME,
-    end_date DATETIME,
-    max_questions INTEGER,
-    total_time INTEGER, -- store in minutes (or seconds if you prefer)
-    FOREIGN KEY (college_id) REFERENCES colleges(id) ON DELETE CASCADE
-  )
-`);
+    // Departments
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS departments (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        college_id INTEGER REFERENCES colleges(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
+    // Students (Auth data)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS students (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        college_id INTEGER REFERENCES colleges(id),
+        department_id INTEGER REFERENCES departments(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
-  // Test_Departments junction table (for many-to-many between tests and departments)
-  db.run(`
-    CREATE TABLE IF NOT EXISTS test_departments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      test_id INTEGER NOT NULL,
-      department_id INTEGER NOT NULL,
-      FOREIGN KEY (test_id) REFERENCES tests(id) ON DELETE CASCADE,
-      FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE
-    )
-  `);
+    // Student Extra Data
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS studentdata (
+        id SERIAL PRIMARY KEY,
+        student_id INTEGER UNIQUE REFERENCES students(id) ON DELETE CASCADE,
+        full_name TEXT NOT NULL,
+        gender TEXT,
+        location TEXT,
+        dob TEXT,
+        about_you TEXT
+      );
+    `);
 
+    // Tests
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tests (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        college_id INTEGER NOT NULL REFERENCES colleges(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        start_date TIMESTAMP,
+        end_date TIMESTAMP,
+        max_questions INTEGER,
+        total_time INTEGER
+      );
+    `);
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS questions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    test_id INTEGER,
-    question_text TEXT NOT NULL,
-    option_a TEXT,
-    option_b TEXT,
-    option_c TEXT,
-    option_d TEXT,
-    correct_option TEXT,
-    FOREIGN KEY (test_id) REFERENCES tests(id)
-  )
-`);
+    // Test_Departments
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS test_departments (
+        id SERIAL PRIMARY KEY,
+        test_id INTEGER NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+        department_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE
+      );
+    `);
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS student_tests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    student_id INTEGER,
-    test_id INTEGER,
-    score REAL,
-    status TEXT DEFAULT 'pending',
-    submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (student_id) REFERENCES students(id),
-    FOREIGN KEY (test_id) REFERENCES tests(id)
-  )
-`);
+    // Questions
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS questions (
+        id SERIAL PRIMARY KEY,
+        test_id INTEGER REFERENCES tests(id),
+        question_text TEXT NOT NULL,
+        option_a TEXT,
+        option_b TEXT,
+        option_c TEXT,
+        option_d TEXT,
+        correct_option TEXT
+      );
+    `);
 
-// ----------------------
-// Coding Challenges
-// ----------------------
-db.run(`
-  CREATE TABLE IF NOT EXISTS coding_challenges (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    description TEXT NOT NULL,
-    difficulty TEXT,                         
-    college_id INTEGER NOT NULL,             
-    department_ids TEXT,                     
-    language_options TEXT,                   
-    test_cases TEXT,                         
-    start_date TEXT NOT NULL,                
-    end_date TEXT NOT NULL,                  
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (college_id) REFERENCES colleges(id)
-  )
-`);
+    // Student Tests
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS student_tests (
+        id SERIAL PRIMARY KEY,
+        student_id INTEGER REFERENCES students(id),
+        test_id INTEGER REFERENCES tests(id),
+        score REAL,
+        status TEXT DEFAULT 'pending',
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
-db.run(`
-  CREATE TABLE IF NOT EXISTS coding_submissions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    challenge_id INTEGER NOT NULL,
-    student_id INTEGER NOT NULL,
-    language TEXT NOT NULL,                  
-    code TEXT NOT NULL,
-    status TEXT DEFAULT 'pending',  -- pending, passed, failed,
-    ai_score REAL,                           
-    feedback TEXT,                           
-    submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (challenge_id) REFERENCES coding_challenges(id),
-    FOREIGN KEY (student_id) REFERENCES students(id)
-  )
-`);
+    // Coding Challenges
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS coding_challenges (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        difficulty TEXT,
+        college_id INTEGER NOT NULL REFERENCES colleges(id),
+        department_ids TEXT,
+        language_options TEXT,
+        test_cases TEXT,
+        start_date TIMESTAMP NOT NULL,
+        end_date TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
+    // Coding Submissions
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS coding_submissions (
+        id SERIAL PRIMARY KEY,
+        challenge_id INTEGER NOT NULL REFERENCES coding_challenges(id),
+        student_id INTEGER NOT NULL REFERENCES students(id),
+        language TEXT NOT NULL,
+        code TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        ai_score REAL,
+        feedback TEXT,
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
-db.run(
-  `CREATE TABLE IF NOT EXISTS test_submissions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  student_id INTEGER NOT NULL,
-  test_id INTEGER NOT NULL,
-  score INTEGER DEFAULT 0,
-  status TEXT DEFAULT 'pending',  -- pending, completed
-  submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (student_id) REFERENCES students(id),
-  FOREIGN KEY (test_id) REFERENCES tests(id)
-);`
-)
+    // Test Submissions
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS test_submissions (
+        id SERIAL PRIMARY KEY,
+        student_id INTEGER NOT NULL REFERENCES students(id),
+        test_id INTEGER NOT NULL REFERENCES tests(id),
+        score INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'pending',
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
 
-db.run(
-  `CREATE TABLE IF NOT EXISTS question_responses (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  submission_id INTEGER NOT NULL,
-  question_id INTEGER NOT NULL,
-  selected_option TEXT NOT NULL,
-  is_correct INTEGER DEFAULT 0,
-  FOREIGN KEY (submission_id) REFERENCES test_submissions(id),
-  FOREIGN KEY (question_id) REFERENCES questions(id)
-);`
-)
-/* 
-db.run(
-  `CREATE TABLE IF NOT EXISTS coding_submissions (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  student_id INTEGER NOT NULL,
-  challenge_id INTEGER NOT NULL,
-  code TEXT NOT NULL,
-  status TEXT DEFAULT 'pending',  -- pending, passed, failed
-  ai_score INTEGER DEFAULT 0,
-  submitted_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (student_id) REFERENCES students(id),
-  FOREIGN KEY (challenge_id) REFERENCES coding_challenges(id)
-);`
-)
- */
-module.exports = db;
+    // Question Responses
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS question_responses (
+        id SERIAL PRIMARY KEY,
+        submission_id INTEGER NOT NULL REFERENCES test_submissions(id),
+        question_id INTEGER NOT NULL REFERENCES questions(id),
+        selected_option TEXT NOT NULL,
+        is_correct BOOLEAN DEFAULT FALSE
+      );
+    `);
+
+    console.log("✅ All PostgreSQL tables are ready.");
+  } catch (err) {
+    console.error("❌ Error initializing database:", err.message);
+  }
+}
+
+// Initialize tables on start
+initializeDatabase();
+
+module.exports = pool;

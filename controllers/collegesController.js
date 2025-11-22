@@ -1,44 +1,66 @@
-const db = require("../db");
+const pool = require("../db"); // PostgreSQL connection pool
 
-// Create college
-exports.createCollege = (req, res) => {
+// ------------------------
+// Create College
+// ------------------------
+exports.createCollege = async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "Name is required" });
 
-  db.run("INSERT INTO colleges (name) VALUES (?)", [name], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ id: this.lastID, name });
-  });
+  try {
+    const result = await pool.query(
+      "INSERT INTO colleges (name) VALUES ($1) RETURNING id, name",
+      [name]
+    );
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
 };
 
-// Get colleges
-exports.getColleges = (req, res) => {
-  db.all("SELECT * FROM colleges", [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
+// ------------------------
+// Get All Colleges
+// ------------------------
+exports.getColleges = async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM colleges ORDER BY id ASC");
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
-// Get single college by ID
-exports.getCollegeById = (req, res) => {
+// ------------------------
+// Get College by ID
+// ------------------------
+exports.getCollegeById = async (req, res) => {
   const { id } = req.params;
 
-  const sql = `SELECT * FROM colleges WHERE id = ?`;
+  try {
+    const result = await pool.query("SELECT * FROM colleges WHERE id = $1", [id]);
+    if (result.rows.length === 0)
+      return res.status(404).json({ error: "College not found" });
 
-  db.get(sql, [id], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (!row) return res.status(404).json({ error: "College not found" });
-
-    res.json(row);
-  });
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
 
-// Delete college
-exports.deleteCollege = (req, res) => {
+// ------------------------
+// Delete College
+// ------------------------
+exports.deleteCollege = async (req, res) => {
   const { id } = req.params;
-  db.run("DELETE FROM colleges WHERE id = ?", [id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    if (this.changes === 0) return res.status(404).json({ error: "College not found" });
+
+  try {
+    const result = await pool.query("DELETE FROM colleges WHERE id = $1", [id]);
+    if (result.rowCount === 0)
+      return res.status(404).json({ error: "College not found" });
+
     res.json({ success: true });
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 };
